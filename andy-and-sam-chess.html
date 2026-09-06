@@ -1660,9 +1660,9 @@ function ensureBoard3D(){
   scene.background = new THREE.Color(0x120c29);
   Board3D.scene = scene;
 
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-  camera.position.set(0, 6.4, 8.6);
-  camera.lookAt(0, 0.2, 0);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  camera.position.set(0, 8.0, 6.5);
+  camera.lookAt(0, 0, 0);
   Board3D.camera = camera;
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.75));
