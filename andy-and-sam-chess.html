@@ -470,7 +470,12 @@ const Sound = (function(){
 
 /* ======================= CHESS ENGINE ======================= */
 function initialState() {
-  const b = Array.from({ length: 8 }, () => Array(8).fill(null));
+  // Empty squares use '' rather than null: Firebase Realtime Database
+  // deletes any key whose value is null, which mangles array rows that
+  // contain empty squares (turning them into sparse objects, or dropping
+  // fully-empty rows entirely). '' is falsy just like null, so all the
+  // engine's truthiness checks below still work unchanged.
+  const b = Array.from({ length: 8 }, () => Array(8).fill(''));
   const back = ['R','N','B','Q','K','B','N','R'];
   for (let f = 0; f < 8; f++) {
     b[0][f] = 'b' + back[f];
@@ -625,18 +630,18 @@ function applyMove(state, move, promoType) {
   if (move.ep) {
     captured = board[move.from.r][move.to.f];
     board[move.to.r][move.to.f] = p;
-    board[move.from.r][move.from.f] = null;
-    board[move.from.r][move.to.f] = null;
+    board[move.from.r][move.from.f] = '';
+    board[move.from.r][move.to.f] = '';
   } else if (move.castle) {
     const rank = move.from.r;
     board[rank][move.to.f] = p;
-    board[rank][move.from.f] = null;
-    if (move.castle === 'K') { board[rank][5] = board[rank][7]; board[rank][7] = null; }
-    else { board[rank][3] = board[rank][0]; board[rank][0] = null; }
+    board[rank][move.from.f] = '';
+    if (move.castle === 'K') { board[rank][5] = board[rank][7]; board[rank][7] = ''; }
+    else { board[rank][3] = board[rank][0]; board[rank][0] = ''; }
   } else {
     captured = board[move.to.r][move.to.f];
     board[move.to.r][move.to.f] = move.promotion ? c + (promoType || 'Q') : p;
-    board[move.from.r][move.from.f] = null;
+    board[move.from.r][move.from.f] = '';
   }
   if (move.doubleStep) { s.ep = { r: (move.from.r + move.to.r) / 2, f: move.from.f }; }
   if (ptype(p) === 'K') { s.castling[c+'K'] = false; s.castling[c+'Q'] = false; }
@@ -911,18 +916,33 @@ function stopPolling(){
 async function enterGame(){
   document.getElementById('btn-room-code').textContent = 'Code: ' + App.code;
   show('game-screen');
-  const room = await loadRoom(App.code);
+  stopPolling();
+
+  // We usually already have a freshly-saved room object from the join/host
+  // flow — avoid a redundant (and possibly flaky) network re-fetch that
+  // could otherwise crash this very first render.
+  let room = (App.room && App.room.code === App.code) ? App.room : null;
+  if (!room) room = await loadRoom(App.code);
+  for (let i=0; i<3 && !room; i++){
+    await sleep(700);
+    room = await loadRoom(App.code);
+  }
+  if (!room){
+    toast("⚠️ Couldn't load the game — check your connection.");
+    document.getElementById('status-banner').textContent = "Couldn't connect. Trying again…";
+    // Keep retrying in the background instead of leaving a dead screen.
+    App.pollTimer = setInterval(pollGame, 1400);
+    return;
+  }
   App.room = room;
   App.lastSeenVersion = room.version;
   renderAll();
-  stopPolling();
   App.pollTimer = setInterval(pollGame, 1400);
 }
 async function pollGame(){
   const room = await loadRoom(App.code);
   if (!room) return;
   if (room.version !== App.lastSeenVersion){
-    const prevTurn = App.room ? App.room.state.turn : null;
     const prevOver = App.room ? App.room.status.over : false;
     App.room = room;
     App.lastSeenVersion = room.version;
