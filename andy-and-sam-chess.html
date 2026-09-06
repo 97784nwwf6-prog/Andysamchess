@@ -63,6 +63,9 @@
     gap:22px;
     padding:24px 16px 36px;
     text-align:center;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    max-height:100%;
   }
   .hidden{display:none !important;}
 
@@ -1715,16 +1718,27 @@ function ensureBoard3D(){
   Board3D.raycaster = new THREE.Raycaster();
 
   canvas.addEventListener('pointerdown', b3d_onPointerDown);
-  window.addEventListener('resize', b3d_resizeIfNeeded);
+
+  // A plain window 'resize' listener misses a lot on mobile Safari (address
+  // bar show/hide, orientation change without a resize event, or the very
+  // first layout pass not being flushed yet when this runs). ResizeObserver
+  // catches all of these reliably, so use it instead — and re-render
+  // immediately so a stale small canvas buffer never gets displayed.
+  const ro = new ResizeObserver(()=>{
+    b3d_resizeIfNeeded();
+    if (App.room) renderBoard(App.room);
+  });
+  ro.observe(document.getElementById('board-wrap'));
+  Board3D.resizeObserver = ro;
 
   Board3D.initialized = true;
 }
 
 function b3d_resizeIfNeeded(){
   const canvas = document.getElementById('board-canvas');
-  if (!canvas || !Board3D.renderer) return;
+  if (!canvas || !Board3D.renderer) return false;
   const w = canvas.clientWidth, h = canvas.clientHeight;
-  if (w === 0 || h === 0) return;
+  if (w === 0 || h === 0) return false;
   const cur = Board3D.renderer.getSize(new THREE.Vector2());
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   if (Math.round(cur.x*Board3D.renderer.getPixelRatio()) !== Math.round(w*ratio) || Math.round(cur.y*Board3D.renderer.getPixelRatio()) !== Math.round(h*ratio)){
@@ -1733,6 +1747,7 @@ function b3d_resizeIfNeeded(){
   }
   Board3D.camera.aspect = w / h;
   Board3D.camera.updateProjectionMatrix();
+  return true;
 }
 
 function b3d_onPointerDown(ev){
@@ -1757,7 +1772,14 @@ function b3d_clearGroup(group){
 
 function renderBoard(room){
   ensureBoard3D();
-  b3d_resizeIfNeeded();
+  const sized = b3d_resizeIfNeeded();
+  if (!sized){
+    // Layout hasn't settled yet (e.g. right after showing the game screen
+    // on a real phone) — try again next frame instead of drawing at a
+    // stale/default canvas size, which would show a cropped, distorted board.
+    requestAnimationFrame(()=>renderBoard(room));
+    return;
+  }
 
   const state = room.state;
   const flip = App.myColor === 'b';
